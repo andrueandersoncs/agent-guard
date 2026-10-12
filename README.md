@@ -165,12 +165,12 @@ agent-guard ~/Downloads/new-skill-pack/
 # First, install agent-guard from GitHub
 git clone https://github.com/andrueandersoncs/agent-guard.git
 cd agent-guard
-npm install
+npm ci
 npm run build
 cd ..
 
 # Then run the scan
-agent-guard/dist/cli.js .cursor/ --json > scan-results.json
+node agent-guard/dist/cli.js .cursor/ --json > scan-results.json
 if [ $? -ne 0 ]; then
   echo "Security issues found!"
   exit 1

@@ -24,7 +24,7 @@
     "scanner",
     "secrets"
   ],
-  "author": "",
+  "author": "Andrue Anderson",
   "license": "ISC",
   "dependencies": {
     "chalk": "^4.1.2",
