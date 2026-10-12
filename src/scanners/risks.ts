@@ -90,7 +90,7 @@ const RISK_PATTERNS: RiskPattern[] = [
   },
   {
     name: 'Download and execute',
-    pattern: /\b(?:curl|wget)\s[^\n]*(?:\||;|&&)\s*(?:sudo\s+(?:-\S+\s+)*)?(?:bash|sh|python3?|node)\b(?!\s+-[ce]\b)/g,
+    pattern: /\b(?:curl|wget)\s[^\n]*(?:\||;|&&)\s*(?:sudo\s+(?:-\S+\s+)*)?(?:bash|sh|python3?|node)\b(?!\s+-[ce]\b)/gi,
     severity: 'high',
     description: 'Download and immediate execution pattern'
   },

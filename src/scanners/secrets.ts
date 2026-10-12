@@ -122,13 +122,23 @@ function findHighEntropyStrings(content: string, filePath: string): Finding[] {
     if (/^[0-9]+$/.test(str)) continue;
     // Subresource-integrity / lockfile hashes
     if (/^sha(?:1|256|384|512)-/.test(str)) continue;
-    // File paths and URLs (must start with protocol, domain, or absolute path prefix)
-    if (/^(?:https?:\/\/|\/[a-z]+\/|\.\.?\/|[a-z]:\\)/i.test(str) && str.split('/').length > 2) continue;
     if (/^[a-f0-9]+$/i.test(str) && str.length % 2 === 0) continue;
     
     if (!isEnvFile && !hasSecretContext(content, match.index)) continue;
 
     const entropy = calculateEntropy(str);
+    
+    // Only skip paths after confirming high entropy - a token like /Ab/Cd/... might be a secret
+    if (entropy >= HIGH_ENTROPY_THRESHOLD) {
+      // Real paths have recognizable segments or common path patterns
+      if (/^(?:https?:\/\/|ftp:\/\/)/.test(str)) continue; // URLs
+      if (/^(?:\/usr|\/etc|\/var|\/home|\/opt|\/tmp|\/bin|\/lib|\/sys|\/proc|\/dev|~)\//.test(str)) continue; // Unix paths
+      if (/^[a-z]:\\/i.test(str)) continue; // Windows paths
+      if (/^\.\.?\//.test(str)) continue; // Relative paths
+      // Multi-segment path with realistic looking segments (lowercase words or common patterns)
+      if (str.split('/').length > 2 && /^[a-z0-9._-]+(?:\/[a-z0-9._-]+)+$/i.test(str) && 
+          str.split('/').some(seg => /^[a-z]{3,}$/.test(seg))) continue;
+    }
     
     if (entropy >= HIGH_ENTROPY_THRESHOLD) {
       const line = content.substring(0, match.index).split('\n').length;

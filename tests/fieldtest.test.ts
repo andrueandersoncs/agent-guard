@@ -122,4 +122,15 @@ describe('code-review regression fixes', () => {
       .filter(x => x.rule === 'otel-prompt-data');
     expect(f).toHaveLength(1);
   });
+
+  it('download-and-execute is case-insensitive', () => {
+    const r = rules('review/download-case.sh');
+    expect(r).toContain('download-and-execute');
+  });
+
+  it('detects path-like high-entropy tokens (/Ab/Cd/...) as secrets', () => {
+    const f = scan({ path: fx('review/path-like-secret.env'), json: false, verbose: false }).findings
+      .filter(x => x.rule === 'high-entropy');
+    expect(f.length).toBeGreaterThan(0);
+  });
 });
