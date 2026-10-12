@@ -1,0 +1,40 @@
+{
+  "name": "agent-guard",
+  "version": "1.0.0",
+  "description": "CLI tool to scan AI agent configurations for security risks and secrets",
+  "main": "dist/index.js",
+  "type": "commonjs",
+  "bin": {
+    "agent-guard": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx src/cli.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://origin.cursor.com/git/andrue-anderson/tmp-ac6b81442d07fbb6.git"
+  },
+  "keywords": [
+    "security",
+    "ai-agents",
+    "scanner",
+    "secrets"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^12.1.0",
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
