@@ -201,7 +201,7 @@ This document describes all security rules implemented in agent-guard, their sev
 - **Risk**: Very large contexts (>100k tokens) can significantly increase costs
 - **Threshold**: Flagged when `maxTokens > 100000`
 
-### Hook Configuration (Cursor Specific)
+### Hook Configuration
 
 #### Cursor Hook Fails Open
 - **Rule**: `cursor-hook-fail-open`
@@ -210,6 +210,15 @@ This document describes all security rules implemented in agent-guard, their sev
 - **Risk**: If `failClosed` is false or unset, hook failures don't block operations
 - **Best Practice**: Security hooks should fail closed (`"failClosed": true`)
 - **Test**: Use test commands provided in finding to verify hook blocks as expected
+- **Why This Matters**: A hook that fails open provides no security guarantee. If the hook script crashes, times out, or encounters an error, execution continues as if the hook passed. This defeats the purpose of security hooks.
+
+#### Claude Code Hook Fails Open
+- **Rule**: `claude-hook-fail-open`
+- **Severity**: High
+- **Source**: Claude Code hooks configuration best practices
+- **Risk**: Same as Cursor hooks - failed hooks don't prevent dangerous operations
+- **Best Practice**: Configure hooks with fail-closed behavior
+- **Context**: Claude Code and Codex support pre-task and pre-execution hooks; these should fail safely
 
 #### User-Level Hook
 - **Rule**: `user-level-hook`
@@ -217,6 +226,46 @@ This document describes all security rules implemented in agent-guard, their sev
 - **Source**: Cursor Cloud Agents documentation
 - **Risk**: Cloud agents only load project-level hooks, not user-level
 - **Impact**: Hook won't run in cloud agent environments; local-only enforcement
+
+### Telemetry & Privacy
+
+#### Telemetry with Prompt Data (Claude/Codex)
+- **Rule**: `telemetry-enabled`
+- **Severity**: High
+- **Source**: Privacy best practices, GDPR/data protection requirements
+- **Risk**: Prompts and responses may contain:
+  - Proprietary source code
+  - Customer data
+  - Trade secrets
+  - API keys and credentials
+  - Internal architecture details
+- **Detected Configurations**:
+  - `telemetry.enabled: true`
+  - `telemetry.sendPrompts: true`
+  - `telemetry.sendResponses: true`
+- **Best Practice**: Review the endpoint and disable if not necessary; ensure endpoint is trusted and compliant
+
+#### OpenTelemetry Prompt Export
+- **Rule**: `otel-prompt-data`
+- **Severity**: High
+- **Source**: OpenTelemetry configuration, data privacy regulations
+- **Risk**: OpenTelemetry can export complete prompt/response pairs to external collectors
+- **Detected Configurations**:
+  - `openTelemetry.enabled: true`
+  - `openTelemetry.sendPromptData: true`
+- **Audit**: Verify the OTEL endpoint is trusted, secured, and authorized for sensitive data
+- **Context**: Many teams enable OTEL for performance monitoring without realizing it exports full prompt content
+
+#### Cursor Telemetry Enabled
+- **Rule**: `cursor-telemetry-enabled`
+- **Severity**: Medium
+- **Source**: Cursor telemetry documentation
+- **Risk**: May send diagnostics, crash reports, and optionally prompts
+- **Detected Configurations**:
+  - `telemetry.enabled: true`
+  - `telemetry.sendPrompts: true`
+  - `telemetry.sendDiagnostics: true`
+- **Best Practice**: Review what is being sent; disable `sendPrompts` when working with sensitive code
 
 ### Hook Test Suggestions
 
@@ -228,22 +277,56 @@ For hooks that should block dangerous commands, the tool provides test commands:
 
 **Source**: Best practices from security testing; these are example commands that hooks should intercept if configured for security.
 
+## External Tool Integration
+
+Agent-guard can optionally wrap industry-standard secret scanners when the `--with-external` flag is used:
+
+### Gitleaks
+- **Tool**: gitleaks
+- **Detection**: Git history and filesystem secret scanning
+- **Integration**: Invoked via CLI, results merged into agent-guard output
+- **Requirement**: `gitleaks` must be installed and in PATH
+- **Format**: JSON output parsed and normalized to agent-guard findings
+- **Rule Prefix**: `gitleaks-*`
+
+### GitGuardian
+- **Tool**: ggshield (GitGuardian CLI)
+- **Detection**: AI-powered secret detection with policy engine
+- **Integration**: Invoked via CLI, results merged into agent-guard output
+- **Requirement**: `ggshield` must be installed and in PATH
+- **Format**: JSON output parsed and normalized to agent-guard findings
+- **Rule Prefix**: `gitguardian-*`
+- **Note**: May require authentication for full feature access
+
+### Why Wrap External Tools?
+
+1. **Comprehensive Coverage**: Combines agent-specific checks with general-purpose secret detection
+2. **Single Interface**: One command to run multiple scanners
+3. **Unified Reporting**: All findings in consistent format
+4. **Optional**: Only runs when explicitly requested with `--with-external`
+5. **Graceful Degradation**: If tools aren't installed, agent-guard still runs its built-in checks
+
 ## Rule Sources Summary
 
 ### Primary Documentation Sources
 1. **Cursor Documentation**: `.cursor/` configuration, hooks, cloud agents
 2. **Claude Code Documentation**: Helper, subagent, and reviewer configuration
-3. **Anthropic/OpenAI Pricing**: Model costs and caching behavior
-4. **OWASP**: Web application and API security
-5. **npm Security Advisories**: Supply chain attack patterns
-6. **GitHub Secret Scanning**: Secret pattern recognition
-7. **Unix/Linux Security**: File permissions, sensitive paths
+3. **Codex Documentation**: Hook configuration and fail-closed behavior
+4. **Anthropic/OpenAI Pricing**: Model costs and caching behavior
+5. **OpenTelemetry Specification**: Data export and privacy implications
+6. **OWASP**: Web application and API security
+7. **npm Security Advisories**: Supply chain attack patterns
+8. **GitHub Secret Scanning**: Secret pattern recognition
+9. **Unix/Linux Security**: File permissions, sensitive paths
+10. **GDPR/Privacy Regulations**: Data handling and export compliance
 
 ### Research Sources
 1. Recent reports of malicious npm packages (2023-2024)
 2. Documented cases of malicious Claude/Cursor skills stealing configs
 3. Malware analysis of installer script patterns
 4. Supply chain security research (Snyk, Sonatype, GitHub)
+5. Real-world incidents of telemetry-based data leaks
+6. Cost overrun case studies from unbounded AI agent configurations
 
 ## Verification Notes
 

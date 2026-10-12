@@ -35,7 +35,7 @@ const SECRET_PATTERNS: SecretPattern[] = [
   },
   {
     name: 'AWS Secret Access Key',
-    pattern: /(?:aws.{0,20})?(?:secret.{0,20})?['\"][A-Za-z0-9/+=]{40}['\"]/, 
+    pattern: /(?:aws.{0,20})?(?:secret.{0,20})?['\"][A-Za-z0-9/+=]{40}['\""]/g, 
     severity: 'high'
   },
   {

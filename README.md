@@ -2,32 +2,59 @@
 
 **PRIVATE REPOSITORY - DO NOT PUBLISH**
 
-CLI tool to scan AI agent configurations for security risks and secrets. Designed for developers to audit skill packs, agent configs, and installation scripts before use.
+Security scanner for AI agent configurations, focusing on **fail-closed hook audits**, **telemetry privacy**, and **team cost controls**. Designed for developers and teams to audit agent configs, skill packs, and installation scripts before deployment.
+
+## Key Differentiators
+
+While free tools like GitGuardian AI hooks, Snyk agent-scan, and Cisco mcp-scanner cover basic secret scanning, agent-guard focuses on:
+
+1. **Fail-Closed Hook Audit** - Ensures hooks in Claude Code, Codex, and Cursor fail safely when errors occur
+2. **Telemetry Privacy Audit** - Detects OpenTelemetry and prompt-telemetry configurations that may leak sensitive data
+3. **Team Cost-Settings Checklist** - Identifies helpers with no model set, expensive defaults, and large context windows
+4. **Optional External Tool Integration** - Wraps gitleaks and GitGuardian when installed for comprehensive coverage
 
 ## Features
 
-### 1. Secret Scanner
-Detects leaked credentials in agent configurations:
+### 1. Hook Safety Audit
+**Why it matters:** Hooks that fail open allow execution to continue when security checks fail, defeating their purpose.
+
+- Cursor hooks without `failClosed: true`
+- Claude Code hooks without fail-closed configuration
+- Codex hooks with unsafe failure modes
+- User-level hooks incompatible with cloud agents
+- Test commands to verify hook behavior
+
+### 2. Telemetry Privacy Audit
+**Why it matters:** Prompt telemetry can leak proprietary code, customer data, and trade secrets to external endpoints.
+
+- OpenTelemetry configurations sending prompt data
+- Claude/Codex telemetry with `sendPrompts` or `sendResponses` enabled
+- Cursor telemetry settings
+- Unvetted or untrusted telemetry endpoints
+
+### 3. Team Cost Controls
+**Why it matters:** Unbounded AI costs can quickly escalate; explicit controls prevent surprise bills.
+
+- Helpers/subagents/reviewers without explicit model settings
+- Expensive model usage (Opus, GPT-4, O1/O3)
+- Model switching that resets prompt caches
+- Large context windows (>100k tokens)
+
+### 4. Secret & Risk Scanner (Base Layer)
+Standard secret detection patterns:
 - API keys (OpenAI, Anthropic, GitHub, AWS, Slack, Google, Stripe)
-- Tokens and bearer credentials
-- Private keys (SSH, TLS)
-- High-entropy strings (potential unrecognized secrets)
+- Tokens, bearer credentials, and private keys
+- High-entropy strings
+- Remote code execution patterns (`curl|sh`, `wget|sh`)
+- Data exfiltration attempts
+- Obfuscated payloads
 
-### 2. Risk Scanner
-Identifies dangerous patterns in install scripts and hooks:
-- Remote code execution (`curl|sh`, `wget|sh`)
-- Data exfiltration (SSH keys, `.claude`, `.cursor`, `.env` files)
-- Obfuscated payloads (base64, hex encoding)
-- Network callbacks in installation hooks
-- Reverse shells and suspicious file operations
+### 5. External Tool Wrapper
+Optional integration with industry-standard tools:
+- **gitleaks** - Git-based secret scanner
+- **GitGuardian** (ggshield) - AI-powered secret detection
 
-### 3. Agent Config Checker
-Analyzes Claude Code and Codex configurations:
-- Helpers/subagents/reviewers without explicit models
-- Cost drivers (model switching, expensive models, large contexts)
-- Cursor hooks that fail open (`failClosed: false`)
-- User-level hooks (incompatible with cloud agents)
-- Test commands for validating hook behavior
+Use `--with-external` to run these tools automatically when installed.
 
 ## Installation
 
@@ -48,6 +75,11 @@ npm run dev /path/to/agent-config
 npm run dev /path/to/skill-pack --verbose
 ```
 
+### Scan with external tools (gitleaks, GitGuardian)
+```bash
+npm run dev /path/to/agent-config --with-external
+```
+
 ### JSON output (for CI/CD integration)
 ```bash
 npm run dev /path/to/.cursor --json
@@ -56,7 +88,8 @@ npm run dev /path/to/.cursor --json
 ### Use compiled binary
 ```bash
 npm run build
-./dist/cli.js /path/to/scan
+node dist/cli.js /path/to/scan
+node dist/cli.js /path/to/scan --with-external --verbose
 ```
 
 ## Exit Codes
@@ -150,20 +183,30 @@ agent-guard ~/.claude/ --verbose
 agent-guard ~/.cursor/ --verbose
 ```
 
-## Context
+## Why Agent-Guard?
 
-This tool addresses recent security incidents:
+**Security incidents are increasing:**
 - Malicious npm packages stealing `.claude` and `.cursor` configs
 - Skill packs with embedded exfiltration scripts
-- Installation hooks that download and execute remote code
+- Installation hooks downloading and executing remote code
 - Obfuscated payloads in agent configurations
 
-## Security Notes
+**But the bigger risks are operational:**
+- Hooks that fail open bypass security controls silently
+- Telemetry configurations leak proprietary code and customer data
+- Unbounded model costs from missing guardrails
+- Teams discovering $10k+ monthly bills from poorly configured agents
+
+Agent-guard catches these **before** they reach production.
+
+## Security & Privacy Notes
 
 - **Keep this tool private** - Detection patterns could help attackers evade detection
 - All test fixtures use fake secrets only
-- The tool runs entirely offline (no network calls)
+- The tool runs entirely offline (no network calls) unless `--with-external` is used
+- External tools (gitleaks, GitGuardian) may make network calls for validation
 - Scan results may contain sensitive information - handle carefully
+- This tool is designed for internal auditing, not public disclosure
 
 ## License
 

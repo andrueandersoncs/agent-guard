@@ -28,6 +28,17 @@ interface ClaudeConfig {
       [key: string]: any;
     };
   };
+  telemetry?: {
+    enabled?: boolean;
+    sendPrompts?: boolean;
+    sendResponses?: boolean;
+    endpoint?: string;
+  };
+  openTelemetry?: {
+    enabled?: boolean;
+    endpoint?: string;
+    sendPromptData?: boolean;
+  };
   model?: string;
   [key: string]: any;
 }
@@ -40,6 +51,11 @@ interface CursorConfig {
       scope?: string;
       [key: string]: any;
     };
+  };
+  telemetry?: {
+    enabled?: boolean;
+    sendDiagnostics?: boolean;
+    sendPrompts?: boolean;
   };
   [key: string]: any;
 }
@@ -192,48 +208,103 @@ export function scanAgentConfig(filePath: string): Finding[] {
           rule: 'large-context'
         });
       }
-    }
-    
-    if (config.hooks) {
-      for (const [hookName, hookConfig] of Object.entries(config.hooks)) {
-        const failClosed = hookConfig.failClosed ?? false;
-        const scope = hookConfig.scope;
-        
-        if (isCursorConfig && !failClosed) {
-          findings.push({
-            type: 'config',
-            severity: 'high',
-            message: `Cursor hook "${hookName}" fails open (failClosed: false or not set)`,
-            file: filePath,
-            details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test command: ${getTestCommand(hookName)}`,
-            rule: 'cursor-hook-fail-open'
-          });
-        }
-        
-        if (scope === 'user') {
-          findings.push({
-            type: 'config',
-            severity: 'medium',
-            message: `Hook "${hookName}" has user-level scope`,
-            file: filePath,
-            details: 'Cloud agents do not load user-level hooks. Use project-level scope for cloud agent compatibility.',
-            rule: 'user-level-hook'
-          });
-        }
-        
-        if (hookConfig.command) {
-          const shouldBlock = BLOCKING_COMMANDS.find(cmd => 
-            hookConfig.command?.includes(cmd)
-          );
-          if (shouldBlock) {
+      
+      if (claudeConfig.telemetry?.enabled || claudeConfig.telemetry?.sendPrompts || claudeConfig.telemetry?.sendResponses) {
+        findings.push({
+          type: 'config',
+          severity: 'high',
+          message: 'Prompt telemetry is enabled',
+          file: filePath,
+          details: 'Sending prompts/responses to telemetry endpoints may leak sensitive data. Review the endpoint and consider disabling.',
+          rule: 'telemetry-enabled'
+        });
+      }
+      
+      if (claudeConfig.openTelemetry?.enabled || claudeConfig.openTelemetry?.sendPromptData) {
+        const endpoint = claudeConfig.openTelemetry?.endpoint || 'not specified';
+        findings.push({
+          type: 'config',
+          severity: 'high',
+          message: 'OpenTelemetry is configured to send prompt data',
+          file: filePath,
+          details: `Endpoint: ${endpoint}. Verify this endpoint is trusted and compliant with your data privacy requirements.`,
+          rule: 'otel-prompt-data'
+        });
+      }
+      
+      if (claudeConfig.hooks) {
+        for (const [hookName, hookConfig] of Object.entries(claudeConfig.hooks)) {
+          const failClosed = hookConfig.failClosed ?? false;
+          
+          if (!failClosed) {
             findings.push({
               type: 'config',
-              severity: 'info',
-              message: `Test: Hook "${hookName}" should block: ${shouldBlock}`,
+              severity: 'high',
+              message: `Claude Code hook "${hookName}" fails open (failClosed: false or not set)`,
               file: filePath,
-              details: `Test command: ${shouldBlock}`,
-              rule: 'hook-test-suggestion'
+              details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test by causing the hook to fail.`,
+              rule: 'claude-hook-fail-open'
             });
+          }
+        }
+      }
+    }
+    
+    if (isCursorConfig) {
+      const cursorConfig = config as CursorConfig;
+      
+      if (cursorConfig.telemetry?.enabled || cursorConfig.telemetry?.sendPrompts || cursorConfig.telemetry?.sendDiagnostics) {
+        findings.push({
+          type: 'config',
+          severity: 'medium',
+          message: 'Cursor telemetry is enabled',
+          file: filePath,
+          details: 'Review what data is being sent. Consider disabling sendPrompts if working with sensitive code.',
+          rule: 'cursor-telemetry-enabled'
+        });
+      }
+      
+      if (config.hooks) {
+        for (const [hookName, hookConfig] of Object.entries(config.hooks)) {
+          const failClosed = hookConfig.failClosed ?? false;
+          const scope = hookConfig.scope;
+          
+          if (!failClosed) {
+            findings.push({
+              type: 'config',
+              severity: 'high',
+              message: `Cursor hook "${hookName}" fails open (failClosed: false or not set)`,
+              file: filePath,
+              details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test command: ${getTestCommand(hookName)}`,
+              rule: 'cursor-hook-fail-open'
+            });
+          }
+          
+          if (scope === 'user') {
+            findings.push({
+              type: 'config',
+              severity: 'medium',
+              message: `Hook "${hookName}" has user-level scope`,
+              file: filePath,
+              details: 'Cloud agents do not load user-level hooks. Use project-level scope for cloud agent compatibility.',
+              rule: 'user-level-hook'
+            });
+          }
+          
+          if (hookConfig.command) {
+            const shouldBlock = BLOCKING_COMMANDS.find(cmd => 
+              hookConfig.command?.includes(cmd)
+            );
+            if (shouldBlock) {
+              findings.push({
+                type: 'config',
+                severity: 'info',
+                message: `Test: Hook "${hookName}" should block: ${shouldBlock}`,
+                file: filePath,
+                details: `Test command: ${shouldBlock}`,
+                rule: 'hook-test-suggestion'
+              });
+            }
           }
         }
       }
