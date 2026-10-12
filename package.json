@@ -16,7 +16,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://origin.cursor.com/git/andrue-anderson/tmp-ac6b81442d07fbb6.git"
+    "url": "git+https://github.com/andrueandersoncs/agent-guard.git"
   },
   "keywords": [
     "security",

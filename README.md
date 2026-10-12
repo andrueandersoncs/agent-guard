@@ -162,7 +162,15 @@ agent-guard ~/Downloads/new-skill-pack/
 ### CI/CD Integration
 ```bash
 # In GitHub Actions or similar
-agent-guard .cursor/ --json > scan-results.json
+# First, install agent-guard from GitHub
+git clone https://github.com/andrueandersoncs/agent-guard.git
+cd agent-guard
+npm install
+npm run build
+cd ..
+
+# Then run the scan
+agent-guard/dist/cli.js .cursor/ --json > scan-results.json
 if [ $? -ne 0 ]; then
   echo "Security issues found!"
   exit 1
@@ -195,7 +203,7 @@ agent-guard ~/.cursor/ --verbose
 - Unbounded model costs from missing guardrails
 - Teams discovering $10k+ monthly bills from poorly configured agents
 
-Agent-guard catches these **before** they reach production.
+Agent-guard helps catch and flag these issues **before** they reach production.
 
 ## Security & Privacy Notes
 
