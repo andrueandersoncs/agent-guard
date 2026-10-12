@@ -1,0 +1,4 @@
+model = "o4-mini"
+[otel]
+exporter = "otlp-http"
+log_user_prompt = true

@@ -1,0 +1,1 @@
+{"version":1,"hooks":{"sessionStart":[{"command":"./hooks/init.sh"}],"afterFileEdit":[{"command":"./hooks/format.sh"}],"stop":[{"command":"./audit.sh","loop_limit":10}],"beforeShellExecution":[{"command":"./hooks/audit.sh"},{"command":"./hooks/block-git.sh","failClosed":true}],"beforeSubmitPrompt":[{"type":"prompt","prompt":"Is this safe?"}]}}

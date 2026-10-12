@@ -1,6 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+export const SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build', '.venv', 'venv', '__pycache__', 'target',
+  'Pods', '.next', '.cache', 'vendor', '.dart_tool', '.gradle', 'DerivedData'
+]);
+export const MAX_FILE_BYTES = 1024 * 1024;
+
 export function isDirectory(filePath: string): boolean {
   try {
     const stats = fs.statSync(filePath);
@@ -24,11 +30,11 @@ export function getAllFiles(dirPath: string, fileList: string[] = []): string[] 
       const stats = fs.statSync(filePath);
       
       if (stats.isDirectory()) {
-        if (file === 'node_modules' || file === '.git' || file === 'dist' || file === 'build') {
+        if (SKIP_DIRS.has(file)) {
           continue;
         }
         getAllFiles(filePath, fileList);
-      } else {
+      } else if (stats.size <= MAX_FILE_BYTES) {
         fileList.push(filePath);
       }
     } catch {
@@ -55,7 +61,7 @@ export function getDirectoryCount(dirPath: string): number {
       const stats = fs.statSync(filePath);
       
       if (stats.isDirectory()) {
-        if (file === 'node_modules' || file === '.git') {
+        if (SKIP_DIRS.has(file)) {
           continue;
         }
         count++;

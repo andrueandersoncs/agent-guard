@@ -64,11 +64,9 @@ program
       reportHuman(result);
     }
     
-    if (result.highSeverityCount > 0) {
-      process.exit(1);
-    }
-    
-    process.exit(0);
+    // Set exitCode instead of calling process.exit() so large JSON output
+    // written to a pipe is fully flushed before the process ends.
+    process.exitCode = result.highSeverityCount > 0 ? 1 : 0;
   });
 
 program.parse();
