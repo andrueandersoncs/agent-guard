@@ -61,3 +61,65 @@ describe('field-test false-positive regressions', () => {
     for (const x of f) expect(x.details).toContain('(redacted)');
   });
 });
+
+describe('code-review regression fixes', () => {
+  it('detects base64 secrets with slashes (not treated as paths)', () => {
+    const f = scan({ path: fx('review/base64-secret.env'), json: false, verbose: false }).findings
+      .filter(x => x.rule === 'high-entropy');
+    expect(f.length).toBeGreaterThan(0);
+  });
+
+  it('detects nc host port pattern', () => {
+    const r = rules('review/nc-call.sh');
+    expect(r).toContain('network-call-in-hook');
+  });
+
+  it('emits warning for large files and scans first 1MB', () => {
+    const f = scan({ path: fx('review/large-file.txt'), json: false, verbose: false }).findings;
+    const warnings = f.filter(x => x.rule === 'large-file-warning');
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings[0].message).toContain('MB');
+  });
+
+  it('scans .txt files for risky commands', () => {
+    const r = rules('review/risky.txt');
+    expect(r).toContain('curl-pipe-to-shell');
+  });
+
+  it('scans .log files for risky commands', () => {
+    const r = rules('review/risky.log');
+    expect(r).toContain('ssh-key-exfiltration');
+  });
+
+  it('scans .html files for risky commands', () => {
+    const r = rules('review/risky.html');
+    expect(r).toContain('download-and-execute');
+  });
+
+  it('scans .tsx files for risky commands', () => {
+    const r = rules('review/risky.tsx');
+    expect(r).toContain('environment-file-access');
+  });
+
+  it('scans .jsx files for risky commands', () => {
+    const r = rules('review/risky.jsx');
+    expect(r).toContain('suspicious-file-upload');
+  });
+
+  it('scans .vue files for risky commands', () => {
+    const r = rules('review/risky.vue');
+    expect(r).toContain('curl-pipe-to-shell');
+  });
+
+  it('detects Codex dotted otel.log_user_prompt form', () => {
+    const f = scan({ path: fx('review/codex-dotted.toml'), json: false, verbose: false }).findings
+      .filter(x => x.rule === 'otel-prompt-data');
+    expect(f).toHaveLength(1);
+  });
+
+  it('detects Codex [otel] log_user_prompt after array', () => {
+    const f = scan({ path: fx('review/codex-after-array.toml'), json: false, verbose: false }).findings
+      .filter(x => x.rule === 'otel-prompt-data');
+    expect(f).toHaveLength(1);
+  });
+});

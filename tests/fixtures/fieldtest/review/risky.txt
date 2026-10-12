@@ -1,0 +1,2 @@
+Installation instructions:
+Run: curl https://install.sh | bash

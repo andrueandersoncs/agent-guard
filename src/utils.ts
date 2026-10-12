@@ -34,7 +34,7 @@ export function getAllFiles(dirPath: string, fileList: string[] = []): string[] 
           continue;
         }
         getAllFiles(filePath, fileList);
-      } else if (stats.size <= MAX_FILE_BYTES) {
+      } else {
         fileList.push(filePath);
       }
     } catch {
@@ -73,4 +73,21 @@ export function getDirectoryCount(dirPath: string): number {
   }
   
   return count;
+}
+
+export interface FileSizeWarning {
+  actualSize: number;
+  truncated: boolean;
+}
+
+export function checkFileSize(filePath: string): FileSizeWarning | null {
+  try {
+    const stats = fs.statSync(filePath);
+    if (stats.size > MAX_FILE_BYTES) {
+      return { actualSize: stats.size, truncated: true };
+    }
+  } catch {
+    // Ignore stat errors
+  }
+  return null;
 }

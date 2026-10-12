@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Finding, SecretPattern } from '../types';
+import { checkFileSize, MAX_FILE_BYTES } from '../utils';
 
 const SECRET_PATTERNS: SecretPattern[] = [
   {
@@ -121,8 +122,8 @@ function findHighEntropyStrings(content: string, filePath: string): Finding[] {
     if (/^[0-9]+$/.test(str)) continue;
     // Subresource-integrity / lockfile hashes
     if (/^sha(?:1|256|384|512)-/.test(str)) continue;
-    // File paths and URLs are not secrets
-    if (/^[\w.-]*\//.test(str) && str.split('/').length > 2) continue;
+    // File paths and URLs (must start with protocol, domain, or absolute path prefix)
+    if (/^(?:https?:\/\/|\/[a-z]+\/|\.\.?\/|[a-z]:\\)/i.test(str) && str.split('/').length > 2) continue;
     if (/^[a-f0-9]+$/i.test(str) && str.length % 2 === 0) continue;
     
     if (!isEnvFile && !hasSecretContext(content, match.index)) continue;
@@ -174,8 +175,24 @@ export function scanForSecrets(filePath: string): Finding[] {
     return findings;
   }
 
+  const sizeWarning = checkFileSize(filePath);
+  if (sizeWarning) {
+    findings.push({
+      type: 'config',
+      severity: 'info',
+      message: `Large file: ${(sizeWarning.actualSize / (1024 * 1024)).toFixed(2)} MB (scanning first 1 MB only)`,
+      file: filePath,
+      details: `File size: ${sizeWarning.actualSize} bytes. Large files are scanned partially to avoid performance issues.`,
+      rule: 'large-file-warning'
+    });
+  }
+
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(MAX_FILE_BYTES);
+    const bytesRead = fs.readSync(fd, buffer, 0, MAX_FILE_BYTES, 0);
+    fs.closeSync(fd);
+    const content = buffer.slice(0, bytesRead).toString('utf-8');
     
     for (const pattern of SECRET_PATTERNS) {
       const matches = content.matchAll(pattern.pattern);

@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Finding, RiskPattern } from '../types';
+import { checkFileSize, MAX_FILE_BYTES } from '../utils';
 
 const RISK_PATTERNS: RiskPattern[] = [
   {
@@ -59,7 +60,7 @@ const RISK_PATTERNS: RiskPattern[] = [
   },
   {
     name: 'Network call in hook',
-    pattern: /\b(?:curl|wget|nc|netcat)\s+(?:-\S+\s+)*['"]?https?:\/\//g,
+    pattern: /\b(?:curl|wget)\s+(?:-\S+\s+)*['"]?https?:\/\/|\b(?:nc|netcat)\s+(?:-\S+\s+)*\S+\s+\d+/gi,
     severity: 'medium',
     description: 'Network call in installation or hook script'
   },
@@ -141,8 +142,24 @@ export function scanForRisks(filePath: string): Finding[] {
     return findings;
   }
 
+  const sizeWarning = checkFileSize(filePath);
+  if (sizeWarning) {
+    findings.push({
+      type: 'config',
+      severity: 'info',
+      message: `Large file: ${(sizeWarning.actualSize / (1024 * 1024)).toFixed(2)} MB (scanning first 1 MB only)`,
+      file: filePath,
+      details: `File size: ${sizeWarning.actualSize} bytes. Large files are scanned partially to avoid performance issues.`,
+      rule: 'large-file-warning'
+    });
+  }
+
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(MAX_FILE_BYTES);
+    const bytesRead = fs.readSync(fd, buffer, 0, MAX_FILE_BYTES, 0);
+    fs.closeSync(fd);
+    const content = buffer.slice(0, bytesRead).toString('utf-8');
     const basename = path.basename(filePath).toLowerCase();
     
     const isHookFile = HOOK_FILE_PATTERNS.some(pattern => 
@@ -227,15 +244,13 @@ export function scanForRisks(filePath: string): Finding[] {
 // scanning it for shell patterns produced mostly false positives in field tests.
 const NON_AGENT_SOURCE_EXTS = new Set([
   '.swift', '.rs', '.go', '.java', '.kt', '.c', '.cc', '.cpp', '.h', '.hpp', '.m', '.mm',
-  '.cs', '.tsx', '.jsx', '.vue', '.svelte', '.css', '.scss', '.html', '.lock', '.map', '.svg'
+  '.cs', '.svelte', '.css', '.scss', '.lock', '.map', '.svg'
 ]);
 const LOCKFILES = new Set(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'cargo.lock', 'poetry.lock', 'composer.lock', 'gemfile.lock']);
 
 export function isRiskScannable(filePath: string): boolean {
   const base = path.basename(filePath).toLowerCase();
   if (LOCKFILES.has(base)) return false;
-  // Captured tool output / transcripts quote web pages and commands; they are not configs
-  if (['.txt', '.log'].includes(path.extname(base))) return false;
   return !NON_AGENT_SOURCE_EXTS.has(path.extname(base));
 }
 

@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Finding } from '../types';
+import { checkFileSize, MAX_FILE_BYTES } from '../utils';
 
 interface ClaudeConfig {
   helpers?: Array<{
@@ -104,9 +105,25 @@ export function scanAgentConfig(filePath: string): Finding[] {
   if (!basename.endsWith('.json')) {
     return findings;
   }
+
+  const sizeWarning = checkFileSize(filePath);
+  if (sizeWarning) {
+    findings.push({
+      type: 'config',
+      severity: 'info',
+      message: `Large file: ${(sizeWarning.actualSize / (1024 * 1024)).toFixed(2)} MB (scanning first 1 MB only)`,
+      file: filePath,
+      details: `File size: ${sizeWarning.actualSize} bytes. Large files are scanned partially to avoid performance issues.`,
+      rule: 'large-file-warning'
+    });
+  }
   
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(MAX_FILE_BYTES);
+    const bytesRead = fs.readSync(fd, buffer, 0, MAX_FILE_BYTES, 0);
+    fs.closeSync(fd);
+    const content = buffer.slice(0, bytesRead).toString('utf-8');
     let config: ClaudeConfig | CursorConfig;
     
     try {
@@ -383,8 +400,9 @@ export function auditCodexToml(filePath: string): Finding[] {
   let content: string;
   try { content = fs.readFileSync(filePath, 'utf-8'); } catch { return []; }
   const findings: Finding[] = [];
-  const otelSection = /^\[otel\][^\[]*/m.exec(content)?.[0] ?? '';
-  if (/^\s*log_user_prompt\s*=\s*true/m.test(otelSection)) {
+  
+  // Check for dotted form anywhere in the file
+  if (/^\s*otel\.log_user_prompt\s*=\s*true/m.test(content)) {
     findings.push({
       type: 'config',
       severity: 'high',
@@ -393,6 +411,24 @@ export function auditCodexToml(filePath: string): Finding[] {
       details: 'Prompts are redacted by default; this setting sends them to the configured exporter.',
       rule: 'otel-prompt-data'
     });
+    return findings;
   }
+  
+  // Check for [otel] section form - capture until next section or end of file
+  const otelSectionMatch = /^\[otel\]\s*$((?:(?!\n\[).)*)/ms.exec(content);
+  if (otelSectionMatch) {
+    const otelSection = otelSectionMatch[0];
+    if (/^\s*log_user_prompt\s*=\s*true/m.test(otelSection)) {
+      findings.push({
+        type: 'config',
+        severity: 'high',
+        message: 'Codex OpenTelemetry exports user prompt text (otel.log_user_prompt = true)',
+        file: filePath,
+        details: 'Prompts are redacted by default; this setting sends them to the configured exporter.',
+        rule: 'otel-prompt-data'
+      });
+    }
+  }
+  
   return findings;
 }
