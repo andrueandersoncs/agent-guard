@@ -1,7 +1,5 @@
 # agent-guard
 
-**PRIVATE REPOSITORY - DO NOT PUBLISH**
-
 Security scanner for AI agent configurations, focusing on **fail-closed hook audits**, **telemetry privacy**, and **team cost controls**. Designed for developers and teams to audit agent configs, skill packs, and installation scripts before deployment.
 
 ## Key Differentiators
@@ -201,13 +199,11 @@ Agent-guard catches these **before** they reach production.
 
 ## Security & Privacy Notes
 
-- **Keep this tool private** - Detection patterns could help attackers evade detection
 - All test fixtures use fake secrets only
 - The tool runs entirely offline (no network calls) unless `--with-external` is used
 - External tools (gitleaks, GitGuardian) may make network calls for validation
 - Scan results may contain sensitive information - handle carefully
-- This tool is designed for internal auditing, not public disclosure
 
 ## License
 
-ISC (Private repository)
+ISC
