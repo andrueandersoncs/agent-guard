@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Finding, SecretPattern } from '../types';
+import { checkFileSize, MAX_FILE_BYTES } from '../utils';
 
 const SECRET_PATTERNS: SecretPattern[] = [
   {
@@ -35,7 +36,8 @@ const SECRET_PATTERNS: SecretPattern[] = [
   },
   {
     name: 'AWS Secret Access Key',
-    pattern: /(?:aws.{0,20})?(?:secret.{0,20})?['\"][A-Za-z0-9/+=]{40}['\""]/g, 
+    // Require AWS secret context on the same line; a bare 40-char quoted string is not enough
+    pattern: /aws[\w-]{0,20}secret[\w-]{0,20}['"]?\s*[:=]\s*['"]?(?=[A-Za-z0-9/+=]*[0-9])(?=[A-Za-z0-9/+=]*[A-Z])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+])/gi, 
     severity: 'high'
   },
   {
@@ -95,8 +97,18 @@ function calculateEntropy(str: string): number {
   return entropy;
 }
 
+const SECRET_KEY_HINT = /(?:key|token|secret|passw(?:or)?d|pwd|auth|credential|bearer|private)/i;
+
+/** Outside .env files, only flag high-entropy values that sit next to a secret-like key name. */
+function hasSecretContext(content: string, index: number): boolean {
+  const lineStart = content.lastIndexOf('\n', index) + 1;
+  return SECRET_KEY_HINT.test(content.slice(lineStart, index + 1));
+}
+
 function findHighEntropyStrings(content: string, filePath: string): Finding[] {
   const findings: Finding[] = [];
+  const base = path.basename(filePath).toLowerCase();
+  const isEnvFile = base === '.env' || base.startsWith('.env.') || base.endsWith('.env');
   
   const stringPattern = /['"]([A-Za-z0-9_\-+=\/]{32,200})['"]|(?:^|\s)([A-Za-z0-9_\-+=\/]{40,200})(?:\s|$)/g;
   let match;
@@ -108,9 +120,25 @@ function findHighEntropyStrings(content: string, filePath: string): Finding[] {
     if (str.length < MIN_STRING_LENGTH || str.length > MAX_STRING_LENGTH) continue;
     
     if (/^[0-9]+$/.test(str)) continue;
+    // Subresource-integrity / lockfile hashes
+    if (/^sha(?:1|256|384|512)-/.test(str)) continue;
     if (/^[a-f0-9]+$/i.test(str) && str.length % 2 === 0) continue;
     
+    if (!isEnvFile && !hasSecretContext(content, match.index)) continue;
+
     const entropy = calculateEntropy(str);
+    
+    // Only skip paths after confirming high entropy - a token like /Ab/Cd/... might be a secret
+    if (entropy >= HIGH_ENTROPY_THRESHOLD) {
+      // Real paths have recognizable segments or common path patterns
+      if (/^(?:https?:\/\/|ftp:\/\/)/.test(str)) continue; // URLs
+      if (/^(?:\/usr|\/etc|\/var|\/home|\/opt|\/tmp|\/bin|\/lib|\/sys|\/proc|\/dev|~)\//.test(str)) continue; // Unix paths
+      if (/^[a-z]:\\/i.test(str)) continue; // Windows paths
+      if (/^\.\.?\//.test(str)) continue; // Relative paths
+      // Multi-segment path with realistic looking segments (lowercase words or common patterns)
+      if (str.split('/').length > 2 && /^[a-z0-9._-]+(?:\/[a-z0-9._-]+)+$/i.test(str) && 
+          str.split('/').some(seg => /^[a-z]{3,}$/.test(seg))) continue;
+    }
     
     if (entropy >= HIGH_ENTROPY_THRESHOLD) {
       const line = content.substring(0, match.index).split('\n').length;
@@ -120,7 +148,7 @@ function findHighEntropyStrings(content: string, filePath: string): Finding[] {
         message: `High-entropy string detected (entropy: ${entropy.toFixed(2)})`,
         file: filePath,
         line,
-        details: `String: ${str.substring(0, 20)}... (${str.length} chars)`,
+        details: `String: ${maskSecret(str)} (${str.length} chars)`,
         rule: 'high-entropy'
       });
     }
@@ -153,8 +181,28 @@ export function scanForSecrets(filePath: string): Finding[] {
     return findings;
   }
   
+  if (LOCKFILES.has(basename)) {
+    return findings;
+  }
+
+  const sizeWarning = checkFileSize(filePath);
+  if (sizeWarning) {
+    findings.push({
+      type: 'config',
+      severity: 'info',
+      message: `Large file: ${(sizeWarning.actualSize / (1024 * 1024)).toFixed(2)} MB (scanning first 1 MB only)`,
+      file: filePath,
+      details: `File size: ${sizeWarning.actualSize} bytes. Large files are scanned partially to avoid performance issues.`,
+      rule: 'large-file-warning'
+    });
+  }
+
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(MAX_FILE_BYTES);
+    const bytesRead = fs.readSync(fd, buffer, 0, MAX_FILE_BYTES, 0);
+    fs.closeSync(fd);
+    const content = buffer.slice(0, bytesRead).toString('utf-8');
     
     for (const pattern of SECRET_PATTERNS) {
       const matches = content.matchAll(pattern.pattern);
@@ -166,17 +214,28 @@ export function scanForSecrets(filePath: string): Finding[] {
           message: `${pattern.name} detected`,
           file: filePath,
           line,
-          details: `Matched pattern: ${match[0].substring(0, 20)}...`,
+          details: `Matched pattern: ${maskSecret(match[0])}`,
           rule: pattern.name.toLowerCase().replace(/\s+/g, '-')
         });
       }
     }
     
-    findings.push(...findHighEntropyStrings(content, filePath));
+    // Logs/transcripts (.txt/.log) are full of hashes and ids; keep named patterns only there
+    if (!['.txt', '.log'].includes(ext)) {
+      findings.push(...findHighEntropyStrings(content, filePath));
+    }
     
   } catch (error) {
     // Skip files that can't be read as text
   }
   
   return findings;
+}
+
+const LOCKFILES = new Set(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'cargo.lock', 'poetry.lock', 'composer.lock', 'gemfile.lock']);
+
+/** Never echo secret material: keep a short prefix for identification only. */
+export function maskSecret(value: string): string {
+  const prefix = value.slice(0, Math.min(4, Math.floor(value.length / 4)));
+  return `${prefix}${'*'.repeat(8)} (redacted)`;
 }

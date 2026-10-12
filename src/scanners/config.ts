@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Finding } from '../types';
+import { checkFileSize, MAX_FILE_BYTES } from '../utils';
 
 interface ClaudeConfig {
   helpers?: Array<{
@@ -97,12 +98,32 @@ export function scanAgentConfig(filePath: string): Finding[] {
   const isCursorConfig = basename.includes('cursor') || 
                          dirname.includes('.cursor');
   
-  if (!isClaudeConfig && !isCursorConfig && !basename.endsWith('.json')) {
+  if (basename.endsWith('.toml') && (isClaudeConfig || dirname.includes('codex') || basename.includes('codex'))) {
+    return auditCodexToml(filePath);
+  }
+
+  if (!basename.endsWith('.json')) {
     return findings;
+  }
+
+  const sizeWarning = checkFileSize(filePath);
+  if (sizeWarning) {
+    findings.push({
+      type: 'config',
+      severity: 'info',
+      message: `Large file: ${(sizeWarning.actualSize / (1024 * 1024)).toFixed(2)} MB (scanning first 1 MB only)`,
+      file: filePath,
+      details: `File size: ${sizeWarning.actualSize} bytes. Large files are scanned partially to avoid performance issues.`,
+      rule: 'large-file-warning'
+    });
   }
   
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(MAX_FILE_BYTES);
+    const bytesRead = fs.readSync(fd, buffer, 0, MAX_FILE_BYTES, 0);
+    fs.closeSync(fd);
+    const content = buffer.slice(0, bytesRead).toString('utf-8');
     let config: ClaudeConfig | CursorConfig;
     
     try {
@@ -111,6 +132,10 @@ export function scanAgentConfig(filePath: string): Finding[] {
       return findings;
     }
     
+    if (config && typeof config === 'object') {
+      findings.push(...auditHooks(config, filePath, isCursorConfig, isClaudeConfig));
+    }
+
     if (isClaudeConfig) {
       const claudeConfig = config as ClaudeConfig;
       
@@ -232,24 +257,9 @@ export function scanAgentConfig(filePath: string): Finding[] {
         });
       }
       
-      if (claudeConfig.hooks) {
-        for (const [hookName, hookConfig] of Object.entries(claudeConfig.hooks)) {
-          const failClosed = hookConfig.failClosed ?? false;
-          
-          if (!failClosed) {
-            findings.push({
-              type: 'config',
-              severity: 'high',
-              message: `Claude Code hook "${hookName}" fails open (failClosed: false or not set)`,
-              file: filePath,
-              details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test by causing the hook to fail.`,
-              rule: 'claude-hook-fail-open'
-            });
-          }
-        }
-      }
+      findings.push(...auditClaudeEnvTelemetry(claudeConfig, filePath));
     }
-    
+
     if (isCursorConfig) {
       const cursorConfig = config as CursorConfig;
       
@@ -264,50 +274,7 @@ export function scanAgentConfig(filePath: string): Finding[] {
         });
       }
       
-      if (config.hooks) {
-        for (const [hookName, hookConfig] of Object.entries(config.hooks)) {
-          const failClosed = hookConfig.failClosed ?? false;
-          const scope = hookConfig.scope;
-          
-          if (!failClosed) {
-            findings.push({
-              type: 'config',
-              severity: 'high',
-              message: `Cursor hook "${hookName}" fails open (failClosed: false or not set)`,
-              file: filePath,
-              details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test command: ${getTestCommand(hookName)}`,
-              rule: 'cursor-hook-fail-open'
-            });
-          }
-          
-          if (scope === 'user') {
-            findings.push({
-              type: 'config',
-              severity: 'medium',
-              message: `Hook "${hookName}" has user-level scope`,
-              file: filePath,
-              details: 'Cloud agents do not load user-level hooks. Use project-level scope for cloud agent compatibility.',
-              rule: 'user-level-hook'
-            });
-          }
-          
-          if (hookConfig.command) {
-            const shouldBlock = BLOCKING_COMMANDS.find(cmd => 
-              hookConfig.command?.includes(cmd)
-            );
-            if (shouldBlock) {
-              findings.push({
-                type: 'config',
-                severity: 'info',
-                message: `Test: Hook "${hookName}" should block: ${shouldBlock}`,
-                file: filePath,
-                details: `Test command: ${shouldBlock}`,
-                rule: 'hook-test-suggestion'
-              });
-            }
-          }
-        }
-      }
+      // hooks handled by auditHooks below
     }
     
   } catch (error) {
@@ -327,4 +294,141 @@ function getTestCommand(hookName: string): string {
   };
   
   return testCommands[hookName] || `trigger ${hookName} hook`;
+}
+
+// Events that can actually block an action. Fail-open only matters for these;
+// observational hooks (sessionStart, after*, stop, preCompact, ...) cannot block.
+const CURSOR_BLOCKING_EVENTS = new Set([
+  'beforeShellExecution', 'beforeMCPExecution', 'beforeReadFile', 'beforeTabFileRead',
+  'preToolUse', 'subagentStart', 'beforeSubmitPrompt'
+]);
+const CLAUDE_BLOCKING_EVENTS = new Set([
+  'PreToolUse', 'PermissionRequest', 'UserPromptSubmit'
+]);
+
+function isPlainObject(v: unknown): v is Record<string, any> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+export function auditHooks(config: Record<string, any>, filePath: string, isCursorPath: boolean, isClaudePath = false): Finding[] {
+  const findings: Finding[] = [];
+  const hooks = config.hooks;
+  // e.g. plugin.json uses "hooks": "./hooks/hooks.json" (a path, not hook definitions)
+  if (!isPlainObject(hooks)) return findings;
+
+  for (const [event, value] of Object.entries(hooks)) {
+    if (Array.isArray(value)) {
+      const claudeStyle = value.some(e => isPlainObject(e) && Array.isArray(e.hooks));
+      if (claudeStyle) {
+        if (!CLAUDE_BLOCKING_EVENTS.has(event)) continue;
+        const commands = value.flatMap(e => (isPlainObject(e) && Array.isArray(e.hooks) ? e.hooks : []))
+          .filter(h => isPlainObject(h) && (h.type ?? 'command') === 'command');
+        if (commands.length === 0) continue;
+        findings.push({
+          type: 'config',
+          severity: 'medium',
+          message: `Claude Code ${event} hook fails open unless its script exits 2 on internal errors`,
+          file: filePath,
+          details: 'Claude Code only blocks on exit code 2; crashes, timeouts and other non-zero exits let the action proceed. ' +
+            'There is no failClosed setting: make the script trap errors and exit 2. Test by making the script throw.',
+          rule: 'claude-hook-fail-open'
+        });
+      } else {
+        if (!CURSOR_BLOCKING_EVENTS.has(event)) continue;
+        value.forEach((entry, i) => {
+          if (!isPlainObject(entry)) return;
+          if (entry.type === 'prompt') return;
+          if (entry.failClosed === true) return;
+          findings.push({
+            type: 'config',
+            severity: 'high',
+            message: `Cursor ${event} hook #${i + 1} fails open (failClosed not set)`,
+            file: filePath,
+            details: `Crashes, timeouts and non-zero exits other than 2 let the action through. Add "failClosed": true to this entry. Command: ${String(entry.command ?? '').slice(0, 80)}`,
+            rule: 'cursor-hook-fail-open'
+          });
+        });
+      }
+    } else if (isPlainObject(value) && (isCursorPath || isClaudePath)) {
+      // Legacy object-per-hook format
+      const label = isCursorPath ? 'Cursor' : 'Claude Code';
+      if (value.failClosed !== true) {
+        findings.push({
+          type: 'config',
+          severity: 'high',
+          message: `${label} hook "${event}" fails open (failClosed: false or not set)`,
+          file: filePath,
+          details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test command: ${getTestCommand(event)}`,
+          rule: isCursorPath ? 'cursor-hook-fail-open' : 'claude-hook-fail-open'
+        });
+      }
+      if (value.scope === 'user') {
+        findings.push({
+          type: 'config',
+          severity: 'medium',
+          message: `Hook "${event}" has user-level scope`,
+          file: filePath,
+          details: 'Cloud agents do not load user-level hooks. Use project-level scope for cloud agent compatibility.',
+          rule: 'user-level-hook'
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+function truthyFlag(v: unknown): boolean {
+  return v === true || v === 1 || v === '1' || (typeof v === 'string' && v.toLowerCase() === 'true');
+}
+
+function auditClaudeEnvTelemetry(config: Record<string, any>, filePath: string): Finding[] {
+  const env = isPlainObject(config.env) ? config.env : {};
+  if (truthyFlag(env.CLAUDE_CODE_ENABLE_TELEMETRY) && truthyFlag(env.OTEL_LOG_USER_PROMPTS)) {
+    return [{
+      type: 'config',
+      severity: 'high',
+      message: 'Claude Code OpenTelemetry exports user prompt text (OTEL_LOG_USER_PROMPTS=1)',
+      file: filePath,
+      details: `Endpoint: ${env.OTEL_EXPORTER_OTLP_ENDPOINT ? 'set in env' : 'not specified'}. Verify the collector is trusted.`,
+      rule: 'otel-prompt-data'
+    }];
+  }
+  return [];
+}
+
+export function auditCodexToml(filePath: string): Finding[] {
+  let content: string;
+  try { content = fs.readFileSync(filePath, 'utf-8'); } catch { return []; }
+  const findings: Finding[] = [];
+  
+  // Check for dotted form anywhere in the file
+  if (/^\s*otel\.log_user_prompt\s*=\s*true/m.test(content)) {
+    findings.push({
+      type: 'config',
+      severity: 'high',
+      message: 'Codex OpenTelemetry exports user prompt text (otel.log_user_prompt = true)',
+      file: filePath,
+      details: 'Prompts are redacted by default; this setting sends them to the configured exporter.',
+      rule: 'otel-prompt-data'
+    });
+    return findings;
+  }
+  
+  // Check for [otel] section form - capture until next section or end of file
+  const otelSectionMatch = /^\[otel\]\s*$((?:(?!\n\[).)*)/ms.exec(content);
+  if (otelSectionMatch) {
+    const otelSection = otelSectionMatch[0];
+    if (/^\s*log_user_prompt\s*=\s*true/m.test(otelSection)) {
+      findings.push({
+        type: 'config',
+        severity: 'high',
+        message: 'Codex OpenTelemetry exports user prompt text (otel.log_user_prompt = true)',
+        file: filePath,
+        details: 'Prompts are redacted by default; this setting sends them to the configured exporter.',
+        rule: 'otel-prompt-data'
+      });
+    }
+  }
+  
+  return findings;
 }

@@ -1,0 +1,9 @@
+model = "o4-mini"
+
+[[tools]]
+name = "search"
+path = "./tools/search.py"
+
+[otel]
+exporter = "otlp-http"
+log_user_prompt = true
