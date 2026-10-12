@@ -1,0 +1,17 @@
+{
+  "model": "claude-3-5-sonnet-20241022",
+  "helpers": [
+    {
+      "name": "test-helper",
+      "model": "claude-3-haiku-20240307",
+      "description": "Helps with testing"
+    }
+  ],
+  "hooks": {
+    "pre-commit": {
+      "command": "npm run lint",
+      "failClosed": true,
+      "scope": "project"
+    }
+  }
+}

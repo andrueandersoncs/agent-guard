@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "pre-commit": {
+      "command": "npm run security-check",
+      "failClosed": false,
+      "scope": "project"
+    },
+    "pre-push": {
+      "command": "npm test",
+      "failClosed": true,
+      "scope": "project"
+    },
+    "pre-edit": {
+      "command": "check-permissions",
+      "scope": "user"
+    }
+  }
+}

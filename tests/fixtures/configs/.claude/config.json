@@ -1,0 +1,46 @@
+{
+  "model": "claude-3-5-sonnet-20241022",
+  "maxTokens": 150000,
+  "helpers": [
+    {
+      "name": "code-reviewer",
+      "description": "Reviews code changes"
+    },
+    {
+      "name": "test-generator",
+      "model": "claude-3-haiku-20240307",
+      "description": "Generates tests"
+    }
+  ],
+  "subagents": [
+    {
+      "name": "research-agent",
+      "description": "Research and documentation"
+    },
+    {
+      "name": "implementation-agent",
+      "model": "claude-3-opus-20240229",
+      "description": "Implementation work"
+    }
+  ],
+  "code-review": {
+    "enabled": true,
+    "reviewers": [
+      {
+        "name": "security-reviewer",
+        "focus": "security"
+      },
+      {
+        "name": "performance-reviewer",
+        "model": "gpt-4-turbo",
+        "focus": "performance"
+      }
+    ]
+  },
+  "hooks": {
+    "pre-commit": {
+      "command": "npm run lint",
+      "scope": "user"
+    }
+  }
+}
