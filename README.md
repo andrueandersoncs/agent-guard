@@ -6,7 +6,7 @@ Security scanner for AI agent configurations, focusing on **fail-closed hook aud
 
 While free tools like GitGuardian AI hooks, Snyk agent-scan, and Cisco mcp-scanner cover basic secret scanning, agent-guard focuses on:
 
-1. **Fail-Closed Hook Audit** - Ensures hooks in Claude Code, Codex, and Cursor fail safely when errors occur
+1. **Fail-Closed Hook Audit** - Ensures hooks in Claude Code and Cursor fail safely when errors occur
 2. **Telemetry Privacy Audit** - Detects OpenTelemetry and prompt-telemetry configurations that may leak sensitive data
 3. **Team Cost-Settings Checklist** - Identifies helpers with no model set, expensive defaults, and large context windows
 4. **Optional External Tool Integration** - Wraps gitleaks and GitGuardian when installed for comprehensive coverage
@@ -17,8 +17,7 @@ While free tools like GitGuardian AI hooks, Snyk agent-scan, and Cisco mcp-scann
 **Why it matters:** Hooks that fail open allow execution to continue when security checks fail, defeating their purpose.
 
 - Cursor hooks without `failClosed: true`
-- Claude Code hooks without fail-closed configuration
-- Codex hooks with unsafe failure modes
+- Claude Code command/http hooks on blocking events without `onFailure: "block"`
 - User-level hooks incompatible with cloud agents
 - Test commands to verify hook behavior
 
