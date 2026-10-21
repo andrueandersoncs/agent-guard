@@ -38,14 +38,29 @@ describe('field-test false-positive regressions', () => {
   it('handles Claude Code legacy format: checks onFailure on command/http handlers', () => {
     const f = scan({ path: fx('claude-legacy'), json: false, verbose: false }).findings
       .filter(x => x.rule === 'claude-hook-fail-open');
-    expect(f).toHaveLength(2);
-    expect(f[0].message).toContain('PreToolUse');
-    expect(f[0].details).toContain('"onFailure": "block"');
-    expect(f[0].details).not.toContain('failClosed');
-    // PermissionRequest has onFailure: "block" but async: true, so it should be flagged
-    expect(f[1].message).toContain('PermissionRequest');
-    expect(f[1].message).toContain('async');
-    expect(f[1].details).toContain('async');
+    expect(f).toHaveLength(3);
+    // PreToolUse: no onFailure
+    const preToolUse = f.find(x => x.message.includes('PreToolUse'));
+    expect(preToolUse).toBeDefined();
+    expect(preToolUse?.details).toContain('"onFailure": "block"');
+    expect(preToolUse?.details).not.toContain('failClosed');
+    // UserPromptSubmit: has onFailure: "block" but asyncRewake: true
+    const userPrompt = f.find(x => x.message.includes('UserPromptSubmit'));
+    expect(userPrompt).toBeDefined();
+    expect(userPrompt?.message).toContain('async');
+    expect(userPrompt?.details).toContain('asyncRewake');
+    // PermissionRequest: has onFailure: "block" but async: true
+    const permReq = f.find(x => x.message.includes('PermissionRequest'));
+    expect(permReq).toBeDefined();
+    expect(permReq?.message).toContain('async');
+    expect(permReq?.details).toContain('async');
+  });
+
+  it('flags legacy Claude Code hooks with user-level scope even for non-blocking events', () => {
+    const f = scan({ path: fx('claude-legacy'), json: false, verbose: false }).findings
+      .filter(x => x.rule === 'user-level-hook');
+    expect(f).toHaveLength(1);
+    expect(f[0].message).toContain('SessionStart');
   });
 
   it('detects Claude Code OTEL prompt logging via env', () => {
