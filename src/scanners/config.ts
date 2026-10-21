@@ -355,16 +355,34 @@ export function auditHooks(config: Record<string, any>, filePath: string, isCurs
       }
     } else if (isPlainObject(value) && (isCursorPath || isClaudePath)) {
       // Legacy object-per-hook format
-      const label = isCursorPath ? 'Cursor' : 'Claude Code';
-      if (value.failClosed !== true) {
-        findings.push({
-          type: 'config',
-          severity: 'high',
-          message: `${label} hook "${event}" fails open (failClosed: false or not set)`,
-          file: filePath,
-          details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test command: ${getTestCommand(event)}`,
-          rule: isCursorPath ? 'cursor-hook-fail-open' : 'claude-hook-fail-open'
-        });
+      if (isCursorPath) {
+        if (value.failClosed !== true) {
+          findings.push({
+            type: 'config',
+            severity: 'high',
+            message: `Cursor hook "${event}" fails open (failClosed: false or not set)`,
+            file: filePath,
+            details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test command: ${getTestCommand(event)}`,
+            rule: 'cursor-hook-fail-open'
+          });
+        }
+      } else if (isClaudePath) {
+        if (!CLAUDE_BLOCKING_EVENTS.has(event)) continue;
+        // Claude Code uses onFailure: "block" on command/http handlers (v2.1.295+)
+        const handlerType = value.type ?? 'command';
+        const isBlockingHandler = handlerType === 'command' || handlerType === 'http';
+        if (isBlockingHandler && value.onFailure !== 'block') {
+          findings.push({
+            type: 'config',
+            severity: 'medium',
+            message: `Claude Code ${event} hook fails open (onFailure not set to "block")`,
+            file: filePath,
+            details: `By default, crashes, timeouts and exit codes other than 0 or 2 let the action proceed. ` +
+              `Set "onFailure": "block" on this ${handlerType} handler (Claude Code v2.1.295+), or have the script trap errors and exit 2. ` +
+              `Test by making the script throw. Source: https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails`,
+            rule: 'claude-hook-fail-open'
+          });
+        }
       }
       if (value.scope === 'user') {
         findings.push({

@@ -34,6 +34,15 @@ describe('field-test false-positive regressions', () => {
     expect(f[0].message).toContain('UserPromptSubmit');
   });
 
+  it('handles Claude Code legacy format: checks onFailure on command/http handlers', () => {
+    const f = scan({ path: fx('claude-legacy'), json: false, verbose: false }).findings
+      .filter(x => x.rule === 'claude-hook-fail-open');
+    expect(f).toHaveLength(1);
+    expect(f[0].message).toContain('PreToolUse');
+    expect(f[0].details).toContain('"onFailure": "block"');
+    expect(f[0].details).not.toContain('failClosed');
+  });
+
   it('detects Claude Code OTEL prompt logging via env', () => {
     expect(rules('claude-otel')).toContain('otel-prompt-data');
   });
