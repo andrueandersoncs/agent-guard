@@ -1,0 +1,1 @@
+{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"guard.py","onFailure":"block"},{"type":"http","url":"http://localhost:8080/check","onFailure":"block"}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"filter.sh","onFailure":"continue"}]}]}}

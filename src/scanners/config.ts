@@ -321,16 +321,20 @@ export function auditHooks(config: Record<string, any>, filePath: string, isCurs
       const claudeStyle = value.some(e => isPlainObject(e) && Array.isArray(e.hooks));
       if (claudeStyle) {
         if (!CLAUDE_BLOCKING_EVENTS.has(event)) continue;
-        const commands = value.flatMap(e => (isPlainObject(e) && Array.isArray(e.hooks) ? e.hooks : []))
-          .filter(h => isPlainObject(h) && (h.type ?? 'command') === 'command');
-        if (commands.length === 0) continue;
+        // Claude Code v2.1.295+ supports onFailure: "block" on command and http handlers
+        // (https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails).
+        const handlers = value.flatMap(e => (isPlainObject(e) && Array.isArray(e.hooks) ? e.hooks : []))
+          .filter(h => isPlainObject(h) && ['command', 'http'].includes(h.type ?? 'command'));
+        const failOpen = handlers.filter(h => h.onFailure !== 'block');
+        if (failOpen.length === 0) continue;
         findings.push({
           type: 'config',
           severity: 'medium',
-          message: `Claude Code ${event} hook fails open unless its script exits 2 on internal errors`,
+          message: `Claude Code ${event} hook fails open (${failOpen.length} handler(s) without onFailure: "block")`,
           file: filePath,
-          details: 'Claude Code only blocks on exit code 2; crashes, timeouts and other non-zero exits let the action proceed. ' +
-            'There is no failClosed setting: make the script trap errors and exit 2. Test by making the script throw.',
+          details: 'By default, crashes, timeouts and exit codes other than 0 or 2 let the action proceed. ' +
+            'Set "onFailure": "block" on each command/http handler (Claude Code v2.1.295+), or have the script trap errors and exit 2. ' +
+            'Test by making the script throw.',
           rule: 'claude-hook-fail-open'
         });
       } else {

@@ -24,6 +24,14 @@ describe('field-test false-positive regressions', () => {
     expect(f[0].message).toContain('PreToolUse');
     expect(f[0].details).toContain('exit 2');
     expect(f[0].details).not.toContain('"failClosed": true');
+    expect(f[0].details).toContain('"onFailure": "block"');
+  });
+
+  it('accepts Claude Code handlers with onFailure: "block" and flags "continue"', () => {
+    const f = scan({ path: fx('claude-onfailure'), json: false, verbose: false }).findings
+      .filter(x => x.rule === 'claude-hook-fail-open');
+    expect(f).toHaveLength(1);
+    expect(f[0].message).toContain('UserPromptSubmit');
   });
 
   it('detects Claude Code OTEL prompt logging via env', () => {
