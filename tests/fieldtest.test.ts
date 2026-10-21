@@ -35,6 +35,34 @@ describe('field-test false-positive regressions', () => {
     expect(f[1].message).toContain('UserPromptSubmit');
   });
 
+  it('handles Claude Code legacy format: checks onFailure on command/http handlers', () => {
+    const f = scan({ path: fx('claude-legacy'), json: false, verbose: false }).findings
+      .filter(x => x.rule === 'claude-hook-fail-open');
+    expect(f).toHaveLength(3);
+    // PreToolUse: no onFailure
+    const preToolUse = f.find(x => x.message.includes('PreToolUse'));
+    expect(preToolUse).toBeDefined();
+    expect(preToolUse?.details).toContain('"onFailure": "block"');
+    expect(preToolUse?.details).not.toContain('failClosed');
+    // UserPromptSubmit: has onFailure: "block" but asyncRewake: true
+    const userPrompt = f.find(x => x.message.includes('UserPromptSubmit'));
+    expect(userPrompt).toBeDefined();
+    expect(userPrompt?.message).toContain('async');
+    expect(userPrompt?.details).toContain('asyncRewake');
+    // PermissionRequest: has onFailure: "block" but async: true
+    const permReq = f.find(x => x.message.includes('PermissionRequest'));
+    expect(permReq).toBeDefined();
+    expect(permReq?.message).toContain('async');
+    expect(permReq?.details).toContain('async');
+  });
+
+  it('flags legacy Claude Code hooks with user-level scope even for non-blocking events', () => {
+    const f = scan({ path: fx('claude-legacy'), json: false, verbose: false }).findings
+      .filter(x => x.rule === 'user-level-hook');
+    expect(f).toHaveLength(1);
+    expect(f[0].message).toContain('SessionStart');
+  });
+
   it('detects Claude Code OTEL prompt logging via env', () => {
     expect(rules('claude-otel')).toContain('otel-prompt-data');
   });

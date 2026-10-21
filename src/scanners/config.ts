@@ -331,11 +331,11 @@ export function auditHooks(config: Record<string, any>, filePath: string, isCurs
         findings.push({
           type: 'config',
           severity: 'medium',
-          message: `Claude Code ${event} hook fails open (${failOpen.length} handler(s) without onFailure: "block")`,
+          message: `Claude Code ${event} hook fails open (${failOpen.length} handler(s) missing onFailure: "block" or async/asyncRewake where block has no effect)`,
           file: filePath,
           details: 'By default, crashes, timeouts and exit codes other than 0 or 2 let the action proceed. ' +
-            'Set "onFailure": "block" on each command/http handler (Claude Code v2.1.295+), or have the script trap errors and exit 2. ' +
-            'Test by making the script throw.',
+            'Set "onFailure": "block" on each command/http handler (Claude Code v2.1.295+), and ensure async/asyncRewake are not set (onFailure has no effect on async hooks). ' +
+            'Alternatively, have the script trap errors and exit 2. Test by making the script throw.',
           rule: 'claude-hook-fail-open'
         });
       } else {
@@ -356,16 +356,41 @@ export function auditHooks(config: Record<string, any>, filePath: string, isCurs
       }
     } else if (isPlainObject(value) && (isCursorPath || isClaudePath)) {
       // Legacy object-per-hook format
-      const label = isCursorPath ? 'Cursor' : 'Claude Code';
-      if (value.failClosed !== true) {
-        findings.push({
-          type: 'config',
-          severity: 'high',
-          message: `${label} hook "${event}" fails open (failClosed: false or not set)`,
-          file: filePath,
-          details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test command: ${getTestCommand(event)}`,
-          rule: isCursorPath ? 'cursor-hook-fail-open' : 'claude-hook-fail-open'
-        });
+      if (isCursorPath) {
+        if (value.failClosed !== true) {
+          findings.push({
+            type: 'config',
+            severity: 'high',
+            message: `Cursor hook "${event}" fails open (failClosed: false or not set)`,
+            file: filePath,
+            details: `If this hook fails, execution continues. Set "failClosed": true to block on failure. Test command: ${getTestCommand(event)}`,
+            rule: 'cursor-hook-fail-open'
+          });
+        }
+      } else if (isClaudePath) {
+        // Only check fail-open for blocking events; user-level-scope check runs regardless
+        if (CLAUDE_BLOCKING_EVENTS.has(event)) {
+          // Claude Code uses onFailure: "block" on command/http handlers (v2.1.295+),
+          // but it does nothing on async hooks (async or asyncRewake set).
+          const handlerType = value.type ?? 'command';
+          const isBlockingHandler = handlerType === 'command' || handlerType === 'http';
+          const isAsync = value.async || value.asyncRewake;
+          const failsClosed = value.onFailure === 'block' && !isAsync;
+          if (isBlockingHandler && !failsClosed) {
+            findings.push({
+              type: 'config',
+              severity: 'medium',
+              message: `Claude Code ${event} hook fails open (${isAsync ? 'async/asyncRewake set where onFailure: "block" has no effect' : 'onFailure not set to "block"'})`,
+              file: filePath,
+              details: `By default, crashes, timeouts and exit codes other than 0 or 2 let the action proceed. ` +
+                (isAsync
+                  ? `onFailure: "block" does nothing on async hooks. Remove async/asyncRewake, or have the script trap errors and exit 2. `
+                  : `Set "onFailure": "block" on this ${handlerType} handler (Claude Code v2.1.295+), or have the script trap errors and exit 2. `) +
+                `Test by making the script throw. Source: https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails`,
+              rule: 'claude-hook-fail-open'
+            });
+          }
+        }
       }
       if (value.scope === 'user') {
         findings.push({
