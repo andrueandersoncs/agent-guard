@@ -368,17 +368,22 @@ export function auditHooks(config: Record<string, any>, filePath: string, isCurs
         }
       } else if (isClaudePath) {
         if (!CLAUDE_BLOCKING_EVENTS.has(event)) continue;
-        // Claude Code uses onFailure: "block" on command/http handlers (v2.1.295+)
+        // Claude Code uses onFailure: "block" on command/http handlers (v2.1.295+),
+        // but it does nothing on async hooks (async or asyncRewake set).
         const handlerType = value.type ?? 'command';
         const isBlockingHandler = handlerType === 'command' || handlerType === 'http';
-        if (isBlockingHandler && value.onFailure !== 'block') {
+        const isAsync = value.async || value.asyncRewake;
+        const failsClosed = value.onFailure === 'block' && !isAsync;
+        if (isBlockingHandler && !failsClosed) {
           findings.push({
             type: 'config',
             severity: 'medium',
-            message: `Claude Code ${event} hook fails open (onFailure not set to "block")`,
+            message: `Claude Code ${event} hook fails open (onFailure not set to "block"${isAsync ? ' or async hook' : ''})`,
             file: filePath,
             details: `By default, crashes, timeouts and exit codes other than 0 or 2 let the action proceed. ` +
-              `Set "onFailure": "block" on this ${handlerType} handler (Claude Code v2.1.295+), or have the script trap errors and exit 2. ` +
+              (isAsync
+                ? `onFailure: "block" does nothing on async hooks. Remove async/asyncRewake, or have the script trap errors and exit 2. `
+                : `Set "onFailure": "block" on this ${handlerType} handler (Claude Code v2.1.295+), or have the script trap errors and exit 2. `) +
               `Test by making the script throw. Source: https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails`,
             rule: 'claude-hook-fail-open'
           });

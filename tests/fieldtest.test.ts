@@ -37,10 +37,14 @@ describe('field-test false-positive regressions', () => {
   it('handles Claude Code legacy format: checks onFailure on command/http handlers', () => {
     const f = scan({ path: fx('claude-legacy'), json: false, verbose: false }).findings
       .filter(x => x.rule === 'claude-hook-fail-open');
-    expect(f).toHaveLength(1);
+    expect(f).toHaveLength(2);
     expect(f[0].message).toContain('PreToolUse');
     expect(f[0].details).toContain('"onFailure": "block"');
     expect(f[0].details).not.toContain('failClosed');
+    // PermissionRequest has onFailure: "block" but async: true, so it should be flagged
+    expect(f[1].message).toContain('PermissionRequest');
+    expect(f[1].message).toContain('async');
+    expect(f[1].details).toContain('async');
   });
 
   it('detects Claude Code OTEL prompt logging via env', () => {
