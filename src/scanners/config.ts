@@ -323,9 +323,10 @@ export function auditHooks(config: Record<string, any>, filePath: string, isCurs
         if (!CLAUDE_BLOCKING_EVENTS.has(event)) continue;
         // Claude Code v2.1.295+ supports onFailure: "block" on command and http handlers
         // (https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails).
+        // onFailure has no effect when async or asyncRewake is set.
         const handlers = value.flatMap(e => (isPlainObject(e) && Array.isArray(e.hooks) ? e.hooks : []))
           .filter(h => isPlainObject(h) && ['command', 'http'].includes(h.type ?? 'command'));
-        const failOpen = handlers.filter(h => h.onFailure !== 'block');
+        const failOpen = handlers.filter(h => h.onFailure !== 'block' || h.async || h.asyncRewake);
         if (failOpen.length === 0) continue;
         findings.push({
           type: 'config',

@@ -30,8 +30,9 @@ describe('field-test false-positive regressions', () => {
   it('accepts Claude Code handlers with onFailure: "block" and flags "continue"', () => {
     const f = scan({ path: fx('claude-onfailure'), json: false, verbose: false }).findings
       .filter(x => x.rule === 'claude-hook-fail-open');
-    expect(f).toHaveLength(1);
-    expect(f[0].message).toContain('UserPromptSubmit');
+    expect(f).toHaveLength(2);
+    expect(f[0].message).toContain('PreToolUse');
+    expect(f[1].message).toContain('UserPromptSubmit');
   });
 
   it('detects Claude Code OTEL prompt logging via env', () => {
